@@ -9,14 +9,14 @@ RUN go mod download
 
 COPY . . 
 
-RUN CGO_ENABLED GOOS=LINUX go build \
+RUN CGO_ENABLED=1 GOOS=linux go build \
     -ldflags="-w - s" \
     -o bin/agent \
     ./cmd/agent
 
 FROM alpine:latest
 
-RUN apk add --no-cahce ca-certificates sqlite
+RUN apk add --no-cachce ca-certificates sqlite
 
 WORKDIR /app
 

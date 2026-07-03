@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/dmytroyunyk/mikrotik-defender/internal/bot"
 	"github.com/dmytroyunyk/mikrotik-defender/internal/config"
@@ -14,7 +15,7 @@ import (
 )
 
 func main() {
-	cfg, err := config.Load("configs/config.yaml")
+	cfg, err := config.Load("configs/config.yml")
 	if err != nil {
 		logger := utils.NewLogger("info")
 		logger.Fatal("failed to load config", "error", err)
@@ -92,11 +93,11 @@ func main() {
 					logger.Error("failed to save event", "error", err)
 				}
 
-				if err := db.SaveBlockedIP(blockedIP, event.Message, int(cfg.Firewall.BanDuration.Minutes())); err != nil {
+				if err := db.SaveBlockedIP(blockedIP, event.Message, cfg.Firewall.BanDuration); err != nil {
 					logger.Error("failed to save blocked IP", "error", err)
 				}
 
-				if err := teleBot.NotifyBlocked(blockedIP, event.Message, cfg.Firewall.BanDuration); err != nil {
+				if err := teleBot.NotifyBlocked(blockedIP, event.Message, time.Duration(cfg.Firewall.BanDuration)*time.Minute); err != nil {
 					logger.Error("failed to send block notification", "error", err)
 				}
 			}

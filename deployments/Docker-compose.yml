@@ -11,16 +11,20 @@ services:
     restart: unless-stopped
 
     volumes:
-      - ../configs/config.yaml:/app/configs/config.yaml:ro
+      - ../configs/config.yaml:/app/configs/config.yml:ro
       - defender-data:/app/data
 
-enviroment: -TZ=Europe/Warszawa
+    environment:
+      - TZ=Europe/Warsaw
+      - MIKROTIK_PASSWORD=${MIKROTIK_PASSWORD}
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
 
-logging: 
-  driver: "json-file"
-  options:
-    max-size: "10m"
-    max-file: "3"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   defender-data:

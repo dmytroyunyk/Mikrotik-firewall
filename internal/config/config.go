@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -23,9 +22,9 @@ type MikroTikConfig struct {
 }
 
 type FirewallConfig struct {
-	BanThreshold int           `yaml:"ban_threshold"`
-	BanDuration  time.Duration `yaml:"ban_duration_minutes"`
-	Whitelist    []string      `yaml:"whitelist"`
+	BanThreshold int      `yaml:"ban_threshold"`
+	BanDuration  int      `yaml:"ban_duration_minutes"`
+	Whitelist    []string `yaml:"whitelist"`
 }
 
 type TelegramConfig struct {
@@ -54,12 +53,20 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("can't unparsing config: %w", err)
 	}
 
+	if token := os.Getenv("TELEGRAM_TOKEN"); token != "" {
+		cfg.Telegram.Token = token
+	}
+	if chatID := os.Getenv("TELEGRAM_CHAT_ID"); chatID != "" {
+		cfg.Telegram.ChatID = chatID
+	}
+	if password := os.Getenv("MIKROTIK_PASSWORD"); password != "" {
+		cfg.MikroTik.Password = password
+	}
+
 	err = cfg.validate()
 	if err != nil {
 		return nil, err
 	}
-
-	cfg.Firewall.BanDuration = cfg.Firewall.BanDuration * time.Minute
 
 	return cfg, nil
 }
