@@ -1,7 +1,7 @@
 mikrotik:
-  adresses: "192.168.88.1:8728"
+  address: "192.168.88.1:8728"
   username: "admin"
-  password: "${MIKROTIK_PASSWORD}"
+  password: ""
 
 firewall:
   ban_thershold: 10 
@@ -11,11 +11,11 @@ firewall:
   - "127.0.0.1"
 
 telegram:
-  token: "..."
-  chat_id: "..."
+  token: ""
+  chat_id: ""
 
 storage:
-  path: "./data/defender.db" # sqlite 
+  path: "./data/defender.db" 
 
 log:
-  level: "info" # debug, info, warn, error
+  level: "info" 
