@@ -4,7 +4,7 @@ mikrotik:
   password: ""
 
 firewall:
-  ban_thershold: 10 
+  ban_threshold: 10 
   ban_duration_minutes: 60
   whitelist: 
   - "192.168.88.0/24"
