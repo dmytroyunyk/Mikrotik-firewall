@@ -6,6 +6,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dmytroyunyk/mikrotik-defender/internal/api"
 	"github.com/dmytroyunyk/mikrotik-defender/internal/bot"
 	"github.com/dmytroyunyk/mikrotik-defender/internal/config"
 	"github.com/dmytroyunyk/mikrotik-defender/internal/firewall"
@@ -61,6 +62,15 @@ func main() {
 	if err := teleBot.NotifyStartup(); err != nil {
 		logger.Error("failed to send startup notification", "error", err)
 	}
+
+	apiServer := api.New(db, client, logger, cfg.API.Key)
+	go func() {
+		if err := apiServer.Start(cfg.API.Port); err != nil {
+			logger.Error("API server error", "error", err)
+		}
+	}()
+	defer apiServer.Stop()
+	logger.Info("API server started", "port", cfg.API.Port)
 
 	watcher := mikrotik.NewWatcher(client, 100)
 	events, err := watcher.Start()
