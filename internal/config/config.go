@@ -13,6 +13,12 @@ type Config struct {
 	Telegram TelegramConfig `yaml:"telegram"`
 	Storage  StorageConfig  `yaml:"storage"`
 	Log      LogConfig      `yaml:"log"`
+	API      APIConfig      `yaml:"api"`
+}
+
+type APIConfig struct {
+	Port int    `yaml:"port"`
+	Key  string `yaml:"key"`
 }
 
 type MikroTikConfig struct {
@@ -51,6 +57,10 @@ func Load(path string) (*Config, error) {
 	err = yaml.Unmarshal(data, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("can't unparsing config: %w", err)
+	}
+
+	if key := os.Getenv("API_key"); key != "" {
+		cfg.API.Key = key
 	}
 
 	if token := os.Getenv("TELEGRAM_TOKEN"); token != "" {
