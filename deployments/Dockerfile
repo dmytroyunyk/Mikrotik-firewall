@@ -10,13 +10,13 @@ RUN go mod download
 COPY . . 
 
 RUN CGO_ENABLED=1 GOOS=linux go build \
-    -ldflags="-w - s" \
+    -ldflags="-w -s" \
     -o bin/agent \
     ./cmd/agent
 
 FROM alpine:latest
 
-RUN apk add --no-cachce ca-certificates sqlite
+RUN apk add --no-cache ca-certificates sqlite
 
 WORKDIR /app
 
