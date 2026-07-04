@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func (s *Server) handleHeath(c *gin.Context) {
+func (s *Server) handleHealth(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status": "ok",
 	})
@@ -29,7 +29,7 @@ func (s *Server) handleGetStats(c *gin.Context) {
 	})
 }
 
-func (s *Server) hadleGetBlocked(c *gin.Context) {
+func (s *Server) handleGetBlocked(c *gin.Context) {
 	blocked, err := s.db.GetBlockedIPs()
 	if err != nil {
 		s.logger.Error("failed to gest blocked IPs", "error", err)
