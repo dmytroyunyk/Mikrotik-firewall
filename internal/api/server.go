@@ -66,7 +66,7 @@ func (s *Server) registerRoutes() {
 
 func (s *Server) Start(port int) error {
 	s.server = &http.Server{
-		addr:         fmt.Sprintf(":%d", port),
+		Addr:         fmt.Sprintf(":%d", port),
 		Handler:      s.router,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
