@@ -10,6 +10,7 @@ import (
 	"github.com/dmytroyunyk/mikrotik-defender/internal/bot"
 	"github.com/dmytroyunyk/mikrotik-defender/internal/config"
 	"github.com/dmytroyunyk/mikrotik-defender/internal/firewall"
+	"github.com/dmytroyunyk/mikrotik-defender/internal/metrics"
 	"github.com/dmytroyunyk/mikrotik-defender/internal/mikrotik"
 	"github.com/dmytroyunyk/mikrotik-defender/internal/storage"
 	"github.com/dmytroyunyk/mikrotik-defender/pkg/utils"
@@ -37,6 +38,10 @@ func main() {
 	logger.Info("connected to MikroTik", "address", cfg.MikroTik.Address)
 
 	db, err := storage.New(cfg.Storage.Path)
+
+	m := metrics.New(db, logger)
+	logger.Info("metrics initalized")
+
 	if err != nil {
 		logger.Fatal("failed to open database", "error", err)
 	}
@@ -63,7 +68,7 @@ func main() {
 		logger.Error("failed to send startup notification", "error", err)
 	}
 
-	apiServer := api.New(db, client, logger, cfg.API.Key)
+	apiServer := api.New(db, client, logger, cfg.API.Key, m)
 	go func() {
 		if err := apiServer.Start(cfg.API.Port); err != nil {
 			logger.Error("API server error", "error", err)
@@ -107,6 +112,8 @@ func main() {
 					logger.Error("failed to save blocked IP", "error", err)
 				}
 
+				m.RecordBlock()
+
 				if err := teleBot.NotifyBlocked(blockedIP, event.Message, time.Duration(cfg.Firewall.BanDuration)*time.Minute); err != nil {
 					logger.Error("failed to send block notification", "error", err)
 				}
@@ -117,8 +124,25 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
+	stopMetrics := make(chan struct{})
+
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				m.Update()
+			case <-stopMetrics:
+				return
+			}
+		}
+	}()
+
 	logger.Info("system is running, press Ctrl+C to stop")
 	<-quit
+
+	close(stopMetrics)
 
 	logger.Info("shutting down...")
 	if err := teleBot.NotifyShutdown(); err != nil {
