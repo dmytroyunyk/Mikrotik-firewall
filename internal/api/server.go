@@ -8,18 +8,20 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/dmytroyunyk/mikrotik-defender/internal/metrics"
 	"github.com/dmytroyunyk/mikrotik-defender/internal/mikrotik"
 	"github.com/dmytroyunyk/mikrotik-defender/internal/storage"
 	"github.com/dmytroyunyk/mikrotik-defender/pkg/utils"
 )
 
 type Server struct {
-	router *gin.Engine
-	server *http.Server
-	db     *storage.DB
-	client *mikrotik.Client
-	logger *utils.Logger
-	apikey string
+	router  *gin.Engine
+	server  *http.Server
+	db      *storage.DB
+	client  *mikrotik.Client
+	logger  *utils.Logger
+	apikey  string
+	metrics *metrics.Metrics
 }
 
 func New(
@@ -27,6 +29,7 @@ func New(
 	client *mikrotik.Client,
 	logger *utils.Logger,
 	apiKey string,
+	m *metrics.Metrics,
 ) *Server {
 	gin.SetMode(gin.ReleaseMode)
 
@@ -35,11 +38,12 @@ func New(
 	router.Use(gin.Recovery())
 
 	s := &Server{
-		router: router,
-		db:     db,
-		client: client,
-		logger: logger,
-		apikey: apiKey,
+		router:  router,
+		db:      db,
+		client:  client,
+		logger:  logger,
+		apikey:  apiKey,
+		metrics: m,
 	}
 
 	s.registerRoutes()
@@ -49,6 +53,7 @@ func New(
 
 func (s *Server) registerRoutes() {
 	s.router.GET("/healt", s.handleHealth)
+	s.router.GET("/metrics", gin.WrapH(s.metrics.Handler()))
 
 	api := s.router.Group("/api/v1")
 	api.Use(s.authMiddleware())
