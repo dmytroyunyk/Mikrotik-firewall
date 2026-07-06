@@ -19,10 +19,10 @@ docker-build:
 	docker-compose -f deployments/docker-compose.yml build
 	
 docker-run:
-	docker-compose -f deployments/docker-compose.yml up -d
+	docker-compose -f deployments/docker-compose.yml --env-file .env up -d
 
 docker-stop:
-	docker-compose -f deployments/docker-compose.yml down
+	docker-compose -f deployments/docker-compose.yml --env-file .env down
 
 docker-logs:
 	docker-compose -f deployments/docker-compose.yml logs -f
