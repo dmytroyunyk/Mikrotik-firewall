@@ -20,7 +20,7 @@ services:
     restart: unless-stopped
 
     volumes:
-      - ../configs/config.yaml:/app/configs/config.yml:ro
+      - ../configs/config.yml:/app/configs/config.yml:ro
       - defender-data:/app/data
 
     environment:
