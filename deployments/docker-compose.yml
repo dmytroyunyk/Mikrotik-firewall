@@ -1,6 +1,15 @@
-version: "3.8"
-
 services:
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+    - ../deployments/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    - prometheus-data:/prometheus
+    ports:
+    - "9090:9090"
+
   agent:
     build:
       context: ..
@@ -28,4 +37,5 @@ services:
 
 volumes:
   defender-data:
+  prometheus-data:
 
