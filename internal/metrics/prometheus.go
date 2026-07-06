@@ -40,6 +40,11 @@ func New(db *storage.DB, logger *utils.Logger) *Metrics {
 			Name: "mikrotik_events_24h",
 			Help: "Total number if IP adresses blocked since startup",
 		}),
+
+		totalBlocked: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "mikrotik_total_blocked_counter",
+			Help: "Total number of IP addresses blocked since startup",
+		}),
 	}
 
 	prometheus.MustRegister(
