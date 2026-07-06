@@ -52,7 +52,7 @@ func New(
 }
 
 func (s *Server) registerRoutes() {
-	s.router.GET("/healt", s.handleHealth)
+	s.router.GET("/health", s.handleHealth)
 	s.router.GET("/metrics", gin.WrapH(s.metrics.Handler()))
 
 	api := s.router.Group("/api/v1")
