@@ -17,7 +17,7 @@ func TestDefaultRules_RequiredTypes(t *testing.T) {
 	rules := DefaultRules()
 
 	required := []string{
-		"ssh_brute_forse",
+		"ssh_brute_force",
 		"login_failed",
 		"port_scan",
 	}
