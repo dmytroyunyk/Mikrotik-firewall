@@ -1,0 +1,56 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "panels": [
+    {
+      "title": "Blocked IPs",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "mikrotik_blocked_ips",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Total Events",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "targets": [
+        {
+          "expr": "mikrotik_total_events",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Events (24h)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "targets": [
+        {
+          "expr": "mikrotik_events_24h",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Total Blocked Over Time",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "mikrotik_total_blocked_counter",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "title": "Mikrotik Intelligent Defender",
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "10s"
+}
