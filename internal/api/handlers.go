@@ -13,6 +13,15 @@ func (s *Server) handleHealth(c *gin.Context) {
 	})
 }
 
+// handleGetStats godoc
+// @Summary      Get system statistics
+// @Description  Returns total events, blocked IPs and events in last 24h
+// @Tags         stats
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Success      200  {object}  map[string]int
+// @Failure      500  {object}  map[string]string
+// @Router       /stats [get]
 func (s *Server) handleGetStats(c *gin.Context) {
 	stats, err := s.db.GetStats()
 	if err != nil {
@@ -29,6 +38,15 @@ func (s *Server) handleGetStats(c *gin.Context) {
 	})
 }
 
+// handleGetBlocked godoc
+// @Summary      Get blocked IPs
+// @Description  Returns list of currently blocked IP addresses
+// @Tags         blocked
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  map[string]string
+// @Router       /blocked [get]
 func (s *Server) handleGetBlocked(c *gin.Context) {
 	blocked, err := s.db.GetBlockedIPs()
 	if err != nil {
@@ -45,6 +63,17 @@ func (s *Server) handleGetBlocked(c *gin.Context) {
 	})
 }
 
+// handleUnblock godoc
+// @Summary      Unblock an IP
+// @Description  Removes an IP from the blacklist
+// @Tags         blocked
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        ip   path      string  true  "IP address to unblock"
+// @Success      200  {object}  map[string]string
+// @Failure      400  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /blocked/{ip} [delete]
 func (s *Server) handleUnblock(c *gin.Context) {
 	ip := c.Param("ip")
 
@@ -76,6 +105,16 @@ func (s *Server) handleUnblock(c *gin.Context) {
 	})
 }
 
+// handleGetEvents godoc
+// @Summary      Get recent events
+// @Description  Returns recent attack events
+// @Tags         events
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        limit  query     int  false  "Number of events to return"
+// @Success      200    {object}  map[string]interface{}
+// @Failure      500    {object}  map[string]string
+// @Router       /events [get]
 func (s *Server) handleGetEvents(c *gin.Context) {
 	limitStr := c.DefaultQuery("limit", "50")
 
@@ -98,6 +137,16 @@ func (s *Server) handleGetEvents(c *gin.Context) {
 	})
 }
 
+// handleGetTopAttackers godoc
+// @Summary      Get top attackers
+// @Description  Returns top attacking IP addresses
+// @Tags         attackers
+// @Produce      json
+// @Security     ApiKeyAuth
+// @Param        limit  query     int  false  "Number of attackers to return"
+// @Success      200    {object}  map[string]interface{}
+// @Failure      500    {object}  map[string]string
+// @Router       /attackers [get]
 func (s *Server) handleGetTopAttackers(c *gin.Context) {
 	limitStr := c.DefaultQuery("limit", "10")
 
