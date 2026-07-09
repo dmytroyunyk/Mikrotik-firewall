@@ -1,5 +1,20 @@
 services:
 
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../deployments/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
@@ -38,4 +53,5 @@ services:
 volumes:
   defender-data:
   prometheus-data:
+  grafana-data:
 
