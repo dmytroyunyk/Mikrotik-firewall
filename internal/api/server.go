@@ -8,6 +8,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	_ "github.com/dmytroyunyk/mikrotik-defender/docs/swagger"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+
 	"github.com/dmytroyunyk/mikrotik-defender/internal/metrics"
 	"github.com/dmytroyunyk/mikrotik-defender/internal/mikrotik"
 	"github.com/dmytroyunyk/mikrotik-defender/internal/storage"
@@ -54,6 +58,7 @@ func New(
 func (s *Server) registerRoutes() {
 	s.router.GET("/health", s.handleHealth)
 	s.router.GET("/metrics", gin.WrapH(s.metrics.Handler()))
+	s.router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	api := s.router.Group("/api/v1")
 	api.Use(s.authMiddleware())
