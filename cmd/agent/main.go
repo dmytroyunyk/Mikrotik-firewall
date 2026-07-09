@@ -16,6 +16,14 @@ import (
 	"github.com/dmytroyunyk/mikrotik-defender/pkg/utils"
 )
 
+// @title           Mikrotik Intelligent Defender API
+// @version         1.0
+// @description     REST API for managing the Mikrotik network security system
+// @host            localhost:8080
+// @BasePath        /api/v1
+// @securityDefinitions.apikey ApiKeyAuth
+// @in header
+// @name X-API-Key
 func main() {
 	cfg, err := config.Load("configs/config.yml")
 	if err != nil {
