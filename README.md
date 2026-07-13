@@ -35,6 +35,7 @@ When someone attacks the router, the agent detects it, instructs the router to b
 - 📈 **Grafana dashboard** — visual overview of blocked IPs and attack trends
 - 🔄 **Graceful shutdown** — cleanly closes router, database, and bot connections
 - 🐳 **Fully containerized** — one command to run the whole stack
+- ⚔️ **Attack simulator** — built-in tool to test detection without a real attacker
 
 ---
 
@@ -62,6 +63,7 @@ mikrotik-defender/
 ├── cmd/
 │   ├── agent/        # main entry point — runs the whole system
 │   └── bot/          # standalone Telegram bot
+│   └── simulator/    # attack simulator for testing detection
 ├── internal/
 │   ├── mikrotik/     # RouterOS API client, watcher, firewall
 │   ├── firewall/     # detection engine, rules, whitelist
@@ -186,6 +188,29 @@ All `/api/v1/*` endpoints require the `X-API-Key` header.
 | `DELETE` | `/api/v1/blocked/{ip}` | Unblock an IP            |
 | `GET`    | `/api/v1/events`       | Recent attack events     |
 | `GET`    | `/api/v1/attackers`    | Top attackers            |
+
+## Attack Simulator
+ 
+A built-in tool to safely test the detection system against your own router. It generates SSH brute-force attempts or port scans so you can verify that the engine detects and blocks them — no real attacker required.
+ 
+```bash
+# Simulate an SSH brute-force attack (20 attempts)
+go run ./cmd/simulator --mode ssh --target 192.168.88.1:22 --count 20 --delay 200
+ 
+# Simulate a port scan
+go run ./cmd/simulator --mode scan --target 192.168.88.1 --count 20
+```
+ 
+| Flag       | Description                              | Default              |
+|------------|------------------------------------------|----------------------|
+| `--target` | Router IP:port to test                   | `192.168.88.1:22`    |
+| `--mode`   | Attack type: `ssh` or `scan`             | `ssh`                |
+| `--count`  | Number of attempts                       | `15`                 |
+| `--delay`  | Delay between attempts (milliseconds)    | `500`                |
+ 
+> ⚠️ Run the simulator from a device **outside** the whitelist, otherwise the source IP will never be blocked. Use it only against your own equipment.
+ 
+---
 
 **Example:**
 

@@ -129,6 +129,12 @@ The lifecycle of a single attack, step by step:
 | `logger.go` | Structured logging built on `slog` |
 | `ip.go` | IP validation, private-range detection, sanitization, and log parsing |
 
+### `cmd/simulator` — attack simulator
+ 
+| File | Responsibility |
+|------|---------------|
+| `main.go` | Generates SSH brute-force attempts and port scans against a target router to test the detection pipeline end to end |
+
 ---
 
 ## Concurrency Model
@@ -170,6 +176,16 @@ For a rule like **"10 SSH failures in 60 seconds"**:
 
 This gives an accurate, rolling measure of recent activity. An attacker who spreads attempts over hours never triggers the rule, while a burst of 10 attempts in a few seconds does. Old entries are cleaned automatically, so memory does not grow without bound.
 
+---
+
+## Attack Simulator
+ 
+The `cmd/simulator` tool exercises the full detection pipeline without needing a real attacker. It is a standalone binary that talks to the router directly, not part of the running agent.
+ 
+- **SSH mode** repeatedly opens SSH connections with deliberately wrong passwords. Each failed attempt makes the router write a `login failure` entry to its log stream, which the Watcher then picks up.
+- **Scan mode** opens TCP connections to a list of common ports, producing connection events the firewall can flag as scanning activity.
+Because whitelisted addresses are never blocked, the simulator must be run from a source IP that is **outside** the configured whitelist. This makes it a safe, repeatable way to confirm that detection rules, the sliding window, blocking, storage, and notifications all work together correctly.
+ 
 ---
 
 ## Security Considerations
