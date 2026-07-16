@@ -102,7 +102,9 @@ func main() {
 					"event_type", event.EventType,
 					"error", err,
 				)
-				teleBot.NotifyError("firewall engine", err.Error())
+				if teleBot != nil {
+					teleBot.NotifyError("firewall engin", err.Error())
+				}
 				continue
 			}
 
@@ -122,8 +124,10 @@ func main() {
 
 				m.RecordBlock()
 
-				if err := teleBot.NotifyBlocked(blockedIP, event.Message, time.Duration(cfg.Firewall.BanDuration)*time.Minute); err != nil {
-					logger.Error("failed to send block notification", "error", err)
+				if teleBot != nil {
+					if err := teleBot.NotifyBlocked(blockedIP, event.Message, time.Duration(cfg.Firewall.BanDuration)*time.Minute); err != nil {
+						logger.Error("failed to send block notification", "error", err)
+					}
 				}
 			}
 		}
@@ -153,8 +157,11 @@ func main() {
 	close(stopMetrics)
 
 	logger.Info("shutting down...")
-	if err := teleBot.NotifyShutdown(); err != nil {
-		logger.Error("failed to send shutdown notification", "error", err)
+
+	if teleBot != nil {
+		if err := teleBot.NotifyShutdown(); err != nil {
+			logger.Error("failed to send shutdown notification", "error", err)
+		}
 	}
 	logger.Info("system stopped")
 }
