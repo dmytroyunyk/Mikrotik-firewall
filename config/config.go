@@ -81,6 +81,10 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+func (c *Config) TelegramEnabled() bool {
+	return c.Telegram.Token != "" && c.Telegram.ChatID != ""
+}
+
 func (c *Config) validate() error {
 	if c.MikroTik.Address == "" {
 		return fmt.Errorf("config: mikrotik.address cannot be empty")
@@ -90,12 +94,6 @@ func (c *Config) validate() error {
 	}
 	if c.MikroTik.Password == "" {
 		return fmt.Errorf("config: mikrotik.password нcannot be empty")
-	}
-	if c.Telegram.Token == "" {
-		return fmt.Errorf("config: telegram.token cannot be empty")
-	}
-	if c.Telegram.ChatID == "" {
-		return fmt.Errorf("config: telegram.chat_id cannot be empty")
 	}
 	if c.Storage.Path == "" {
 		return fmt.Errorf("config: storage.path cannot be empty")
