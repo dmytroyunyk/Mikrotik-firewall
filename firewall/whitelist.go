@@ -2,49 +2,42 @@ package firewall
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 )
 
 type Whitelist struct {
-	networks []*net.IPNet
-	ips      map[string]bool
+	networks []netip.Prefix
+	ips      map[netip.Addr]bool
 }
 
 func NewWhitelist(entries []string) (*Whitelist, error) {
 	w := &Whitelist{
-		ips: make(map[string]bool),
+		ips: make(map[netip.Addr]bool),
 	}
 
 	for _, entry := range entries {
-		_, network, err := net.ParseCIDR(entry)
-		if err == nil {
-			w.networks = append(w.networks, network)
+		if prefix, err := netip.ParsePrefix(entry); err == nil {
+			w.networks = append(w.networks, prefix)
 			continue
 		}
 
-		ip := net.ParseIP(entry)
-		if ip == nil {
-			return nil, fmt.Errorf("invalid whitelist entry: %s", entry)
+		addr, err := netip.ParseAddr(entry)
+		if err != nil {
+			return nil, fmt.Errorf("invalid whitelist entery %q: %w", entry, err)
 		}
-
-		w.ips[entry] = true
+		w.ips[addr] = true
 	}
 
 	return w, nil
 }
 
-func (w *Whitelist) Contains(ipStr string) bool {
-	if w.ips[ipStr] {
+func (w *Whitelist) Contains(ip netip.Addr) bool {
+	if w.ips[ip] {
 		return true
 	}
 
-	ip := net.ParseIP(ipStr)
-	if ip == nil {
-		return false
-	}
-
-	for _, network := range w.networks {
-		if network.Contains(ip) {
+	for _, n := range w.networks {
+		if n.Contains(ip) {
 			return true
 		}
 	}
