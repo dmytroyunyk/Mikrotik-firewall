@@ -6,8 +6,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/dmytroyunyk/mikrotik-defender/internal/storage"
-	"github.com/dmytroyunyk/mikrotik-defender/pkg/utils"
+	"github.com/dmytroyunyk/mikrotik-defender/storage"
+	"github.com/dmytroyunyk/mikrotik-defender/utils"
 )
 
 type Metrics struct {
