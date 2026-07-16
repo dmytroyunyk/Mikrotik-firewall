@@ -1,6 +1,7 @@
 package firewall
 
 import (
+	"net/netip"
 	"testing"
 )
 
@@ -32,11 +33,11 @@ func TestWhitelist_Contains_SingleIP(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !w.Contains("127.0.0.1") {
+	if !w.Contains(netip.MustParseAddr("127.0.0.1")) {
 		t.Error("expected 127.0.0.1 to be whitelisted")
 	}
 
-	if w.Contains("1.2.3.4") {
+	if w.Contains(netip.MustParseAddr("1.2.3.4")) {
 		t.Error("expected 1.2.3.4 to not be whitelisted")
 	}
 }
@@ -61,7 +62,7 @@ func TestWhitelist_Contains_CIDRRange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.ip, func(t *testing.T) {
-			result := w.Contains(tt.ip)
+			result := w.Contains(netip.MustParseAddr(tt.ip))
 			if result != tt.expected {
 				t.Errorf("contains(%s) = %v, expected %v", tt.ip, result, tt.expected)
 			}
@@ -75,7 +76,7 @@ func TestWhitelist_Contatins_EmptyWhitelist(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if w.Contains("192.168.88.1") {
+	if w.Contains(netip.MustParseAddr("192.168.88.1")) {
 		t.Error("empty whitelist should not contain any IP")
 	}
 }
