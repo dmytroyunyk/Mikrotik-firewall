@@ -6,10 +6,10 @@ import (
 
 	tele "gopkg.in/telebot.v3"
 
-	"github.com/dmytroyunyk/mikrotik-defender/internal/config"
-	"github.com/dmytroyunyk/mikrotik-defender/internal/mikrotik"
-	"github.com/dmytroyunyk/mikrotik-defender/internal/storage"
-	"github.com/dmytroyunyk/mikrotik-defender/pkg/utils"
+	"github.com/dmytroyunyk/mikrotik-defender/config"
+	"github.com/dmytroyunyk/mikrotik-defender/mikrotik"
+	"github.com/dmytroyunyk/mikrotik-defender/storage"
+	"github.com/dmytroyunyk/mikrotik-defender/utils"
 )
 
 type Bot struct {

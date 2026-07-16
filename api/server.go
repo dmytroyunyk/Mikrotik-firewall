@@ -12,10 +12,10 @@ import (
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 
-	"github.com/dmytroyunyk/mikrotik-defender/internal/metrics"
-	"github.com/dmytroyunyk/mikrotik-defender/internal/mikrotik"
-	"github.com/dmytroyunyk/mikrotik-defender/internal/storage"
-	"github.com/dmytroyunyk/mikrotik-defender/pkg/utils"
+	"github.com/dmytroyunyk/mikrotik-defender/metrics"
+	"github.com/dmytroyunyk/mikrotik-defender/mikrotik"
+	"github.com/dmytroyunyk/mikrotik-defender/storage"
+	"github.com/dmytroyunyk/mikrotik-defender/utils"
 )
 
 type Server struct {

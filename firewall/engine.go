@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dmytroyunyk/mikrotik-defender/internal/mikrotik"
+	"github.com/dmytroyunyk/mikrotik-defender/mikrotik"
 )
 
 type Engine struct {
