@@ -2,6 +2,7 @@ package firewall
 
 import (
 	"fmt"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -27,7 +28,12 @@ func NewEngine(client *mikrotik.Client, whitelist *Whitelist) *Engine {
 }
 
 func (e *Engine) ProcessEvent(ip, eventType string) (string, error) {
-	if e.whitelist.Contains(ip) {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return "", nil
+	}
+
+	if e.whitelist.Contains(addr) {
 		return "", nil
 	}
 
@@ -42,8 +48,7 @@ func (e *Engine) ProcessEvent(ip, eventType string) (string, error) {
 		return "", nil
 	}
 
-	err := e.client.BlockIP(ip, rule.BlockReason, 60*time.Minute)
-	if err != nil {
+	if err := e.client.BlockIP(ip, rule.BlockReason, 60*time.Minute); err != nil {
 		return "", fmt.Errorf("failed to block IP %s: %w", ip, err)
 	}
 
