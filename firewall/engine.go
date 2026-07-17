@@ -42,7 +42,7 @@ func (e *Engine) ProcessEvent(ip, eventType string) (string, error) {
 		return "", nil
 	}
 
-	count := e.recordAndCount(ip, eventType, rule.Window)
+	count := e.recordAndCount(addr, eventType, rule.Window)
 
 	if !rule.Matches(count) {
 		return "", nil
@@ -64,11 +64,11 @@ func (e *Engine) findRule(eventType string) (Rule, bool) {
 	return Rule{}, false
 }
 
-func (e *Engine) recordAndCount(ip, eventType string, window time.Duration) int {
+func (e *Engine) recordAndCount(addr netip.Addr, eventType string, window time.Duration) int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	key := ip + ":" + eventType
+	key := aggregateKey(addr) + ":" + eventType
 	now := time.Now()
 
 	e.counters[key] = append(e.counters[key], now)
@@ -83,4 +83,15 @@ func (e *Engine) recordAndCount(ip, eventType string, window time.Duration) int 
 	e.counters[key] = recent
 
 	return len(recent)
+}
+
+func aggregateKey(addr netip.Addr) string {
+	if addr.Is6() && !addr.Is4In6() {
+		prefix, err := addr.Prefix(64)
+		if err != nil {
+			return addr.String()
+		}
+		return prefix.String()
+	}
+	return addr.String()
 }
