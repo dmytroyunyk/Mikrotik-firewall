@@ -28,9 +28,16 @@ type MikroTikConfig struct {
 }
 
 type FirewallConfig struct {
-	BanThreshold int      `yaml:"ban_threshold"`
-	BanDuration  int      `yaml:"ban_duration_minutes"`
-	Whitelist    []string `yaml:"whitelist"`
+	BanThreshold int        `yaml:"ban_threshold"`
+	BanDuration  int        `yaml:"ban_duration_minutes"`
+	Whitelist    []string   `yaml:"whitelist"`
+	IPv6         IPv6Config `yaml:"ipv6"`
+}
+
+type IPv6Config struct {
+	Prefix64Threshold int `yaml:"prefix_64_threshold"`
+	Prefix56Threshold int `yaml:"prefix_56_threshold"`
+	Prefix48Threshold int `yaml:"prefix_48_threshold"`
 }
 
 type TelegramConfig struct {
