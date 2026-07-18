@@ -6,6 +6,10 @@ mikrotik:
 firewall:
   ban_threshold: 10 
   ban_duration_minutes: 60
+  ipv6:
+    prefix_64_threshold: 10
+    prefix_56_threshold: 30
+    prefix_48_threshold: 100
   whitelist: 
   - "192.168.88.0/24"
   - "127.0.0.1"

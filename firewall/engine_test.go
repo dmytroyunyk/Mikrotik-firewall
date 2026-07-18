@@ -1,15 +1,26 @@
 package firewall
 
 import (
-	"net/netip"
 	"testing"
 	"time"
+
+	"github.com/dmytroyunyk/mikrotik-defender/config"
 )
+
+func testConfig() config.FirewallConfig {
+	return config.FirewallConfig{
+		IPv6: config.IPv6Config{
+			Prefix64Threshold: 10,
+			Prefix56Threshold: 30,
+			Prefix48Threshold: 100,
+		},
+	}
+}
 
 func TestEngine_ProcessEvent_WhiteListed(t *testing.T) {
 	Whitelist, _ := NewWhitelist([]string{"192.168.88.0/24"})
 
-	engine := NewEngine(nil, Whitelist)
+	engine := NewEngine(nil, Whitelist, testConfig())
 
 	for i := 0; i < 100; i++ {
 		blockedIP, err := engine.ProcessEvent("192.168.88.55", "ssh_brute_force")
@@ -24,7 +35,7 @@ func TestEngine_ProcessEvent_WhiteListed(t *testing.T) {
 
 func TestEngine_ProcessEvent_UnkownEventType(t *testing.T) {
 	Whitelist, _ := NewWhitelist([]string{})
-	engine := NewEngine(nil, Whitelist)
+	engine := NewEngine(nil, Whitelist, testConfig())
 
 	blockedIP, err := engine.ProcessEvent("1.2.3.4", "unknown_event_type")
 
@@ -39,7 +50,7 @@ func TestEngine_ProcessEvent_UnkownEventType(t *testing.T) {
 
 func TestEngine_findRule(t *testing.T) {
 	Whitelist, _ := NewWhitelist([]string{})
-	engine := NewEngine(nil, Whitelist)
+	engine := NewEngine(nil, Whitelist, testConfig())
 
 	rule, found := engine.findRule("ssh_brute_force")
 	if !found {
@@ -57,14 +68,14 @@ func TestEngine_findRule(t *testing.T) {
 
 func TestEngine_recordAndCount(t *testing.T) {
 	Whitelist, _ := NewWhitelist([]string{})
-	engine := NewEngine(nil, Whitelist)
+	engine := NewEngine(nil, Whitelist, testConfig())
 
-	addr := netip.MustParseAddr("1.2.3.4")
+	key := "1.2.3.4"
 	eventType := "ssh_brute_force"
 	window := 60 * time.Second
 
 	for i := 1; i <= 5; i++ {
-		count := engine.recordAndCount(addr, eventType, window)
+		count := engine.recordAndCount(key, eventType, window)
 		if count != i {
 			t.Errorf("iteration %d: expected count %d, got %d", i, i, count)
 		}
@@ -73,23 +84,20 @@ func TestEngine_recordAndCount(t *testing.T) {
 
 func TestEngine_recordAndCount_DifferentIPs(t *testing.T) {
 	Whitelist, _ := NewWhitelist([]string{})
-	engine := NewEngine(nil, Whitelist)
+	engine := NewEngine(nil, Whitelist, testConfig())
 
 	window := 60 * time.Second
 
-	ip1 := netip.MustParseAddr("1.1.1.1")
-	ip2 := netip.MustParseAddr("2.2.2.2")
+	engine.recordAndCount("1.1.1.1", "ssh_brute_force", window)
+	engine.recordAndCount("1.1.1.1", "ssh_brute_force", window)
+	engine.recordAndCount("2.2.2.2", "ssh_brute_force", window)
 
-	engine.recordAndCount(ip1, "ssh_brute_force", window)
-	engine.recordAndCount(ip1, "ssh_brute_force", window)
-	engine.recordAndCount(ip2, "ssh_brute_force", window)
-
-	count1 := engine.recordAndCount(ip1, "ssh_brute_force", window)
+	count1 := engine.recordAndCount("1.1.1.1", "ssh_brute_force", window)
 	if count1 != 3 {
 		t.Errorf("IP 1.1.1.1: expected count 3, got %d", count1)
 	}
 
-	count2 := engine.recordAndCount(ip2, "ssh_brute_force", window)
+	count2 := engine.recordAndCount("2.2.2.2", "ssh_brute_force", window)
 	if count2 != 2 {
 		t.Errorf("IP 2.2.2.2: expected count 2, got %d", count2)
 	}
@@ -97,56 +105,37 @@ func TestEngine_recordAndCount_DifferentIPs(t *testing.T) {
 
 func TestEngine_recordAndCount_OldEventDropped(t *testing.T) {
 	Whitelist, _ := NewWhitelist([]string{})
-	engine := NewEngine(nil, Whitelist)
+	engine := NewEngine(nil, Whitelist, testConfig())
 
-	addr := netip.MustParseAddr("1.2.3.4")
+	key := "1.2.3.4"
 	eventType := "ssh_brute_force"
 
 	shortWindow := 10 * time.Millisecond
 
-	engine.recordAndCount(addr, eventType, shortWindow)
+	engine.recordAndCount(key, eventType, shortWindow)
 
 	time.Sleep(20 * time.Millisecond)
 
-	count := engine.recordAndCount(addr, eventType, shortWindow)
+	count := engine.recordAndCount(key, eventType, shortWindow)
 
 	if count != 1 {
 		t.Errorf("expected count 1 (old event dropped), got %d", count)
 	}
 }
 
-func TestEngine_recordAndCount_IPv6Aggregation(t *testing.T) {
-	Whitelist, _ := NewWhitelist([]string{})
-	engine := NewEngine(nil, Whitelist)
+func TestEngine_ProccesEvent_IPv6_Prefix56Aggregation(t *testing.T) {
+	whitelist, _ := NewWhitelist([]string{})
+	engine := NewEngine(nil, whitelist, testConfig())
 
 	window := 60 * time.Second
 
-	addr1 := netip.MustParseAddr("2001:db8::1")
-	addr2 := netip.MustParseAddr("2001:db8::2")
-	addr3 := netip.MustParseAddr("2001:db8::ffff")
-
-	engine.recordAndCount(addr1, "ssh_brute_forse", window)
-	engine.recordAndCount(addr2, "ssh_brute_forse", window)
-	count := engine.recordAndCount(addr3, "ssh_brute_forse", window)
-
-	if count != 3 {
-		t.Errorf("expected 3 aggregated by /64, got %d", count)
+	prefix56 := "2001:db8:1::/56"
+	for i := 0; i < 5; i++ {
+		engine.recordAndCount(prefix56, "ssh_brute_force", window)
 	}
-}
 
-func TestEngine_recordAndCount_IPv6DiferentPrefix(t *testing.T) {
-	Whitelist, _ := NewWhitelist([]string{})
-	engine := NewEngine(nil, Whitelist)
-
-	window := 60 * time.Second
-
-	addr1 := netip.MustParseAddr("2001:db8:1::1")
-	addr2 := netip.MustParseAddr("2001:db8:2::1")
-
-	engine.recordAndCount(addr1, "shh_brute_forse", window)
-	count := engine.recordAndCount(addr2, "ssh_brute_forse", window)
-
-	if count != 1 {
-		t.Errorf("expected 1 diferent /64 prefixes, got %d", count)
+	count := engine.recordAndCount(prefix56, "ssh_brute_force", window)
+	if count != 6 {
+		t.Errorf("/56 aggregation: expected 6, got %d", count)
 	}
 }

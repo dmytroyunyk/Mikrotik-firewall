@@ -62,7 +62,7 @@ func main() {
 	}
 	logger.Info("whitelist loaded", "entries", len(cfg.Firewall.Whitelist))
 
-	engine := firewall.NewEngine(client, whitelist)
+	engine := firewall.NewEngine(client, whitelist, cfg.Firewall)
 	logger.Info("firewall engine initialized")
 
 	teleBot, err := bot.New(cfg, db, client, logger)
