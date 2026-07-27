@@ -7,11 +7,14 @@ import (
 	"time"
 
 	"github.com/dmytroyunyk/mikrotik-defender/config"
-	"github.com/dmytroyunyk/mikrotik-defender/mikrotik"
 )
 
+type Blocker interface {
+	BlockIP(ip, reason string, duration time.Duration) error
+}
+
 type Engine struct {
-	client    *mikrotik.Client
+	client    Blocker
 	rules     []Rule
 	whitelist *Whitelist
 
@@ -21,7 +24,7 @@ type Engine struct {
 	counters map[string][]time.Time
 }
 
-func NewEngine(client *mikrotik.Client, whitelist *Whitelist, cfg config.FirewallConfig) *Engine {
+func NewEngine(client Blocker, whitelist *Whitelist, cfg config.FirewallConfig) *Engine {
 	return &Engine{
 		client:    client,
 		rules:     DefaultRules(),
