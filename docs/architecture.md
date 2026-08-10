@@ -1,208 +1,200 @@
 # Architecture
 
-This document describes the internal design of MikroTik Intelligent Defender: how components interact, how data flows through the system, and how concurrency is handled.
+This document explains the design decisions behind adaptive shaper why it is
+structured as a polling control loop how concurrency is handled how it survives
+RouterOS API failures, and how the HTB reallocation and hysteresis actually work.
 
----
+## Control plane and data plane
 
-## Design Philosophy
+The router is the data plane. It forwards packets and enforces the queue tree it
+is the only component in the packet path. The agent is the control plane. It
+observes counters and pushes limit changes, but no user traffic ever passes
+through it. This split is deliberate: the failure of a control plane should
+degrade behaviour, not connectivity. If the agent crashes, the queue tree keeps
+running with whatever limits were last written, and the link is unaffected.
 
-The system separates responsibilities into two planes, a pattern borrowed from network engineering:
-
-- **Data Plane** (MikroTik router) — forwards traffic and enforces filtering rules. It does not make decisions; it only executes them.
-- **Control Plane** (Go agent) — observes, analyzes, and decides. It never touches traffic directly. Instead, it instructs the Data Plane through the RouterOS API.
-
-This separation means the agent can run on cheap, separate hardware (a mini PC) while the router focuses purely on packet forwarding. It also means the agent can be restarted, updated, or scaled without interrupting network traffic.
-
----
-
-## Component Overview
+## Data flow
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                   Control Plane (Go)                     │
-│                                                          │
-│  ┌─────────┐  events   ┌────────┐  block   ┌──────────┐ │
-│  │ Watcher │─────────► │ Engine │─────────► │ MikroTik │ │
-│  └─────────┘ (channel) └────────┘  (API)   │  Client  │ │
-│                             │               └──────────┘ │
-│                             │ blocked IP                  │
-│                             ▼                             │
-│                        ┌─────────┐                        │
-│                        │ Storage │                        │
-│                        │(SQLite) │                        │
-│                        └─────────┘                        │
-│                             │                             │
-│                   ┌─────────┴──────────┐                  │
-│                   ▼                    ▼                  │
-│             ┌──────────┐        ┌──────────┐             │
-│             │ Telegram │        │ Metrics  │             │
-│             │   Bot    │        │(Prometheus)            │
-│             └──────────┘        └──────────┘             │
-│                                      │                    │
-│                               ┌──────────┐               │
-│                               │ REST API │               │
-│                               └──────────┘               │
-└──────────────────────────────────────────────────────────┘
-         │ read logs (API)            │ block (API)
-         ▼                            ▼
-┌──────────────────────────────────────────────────────────┐
-│                  Data Plane (MikroTik)                    │
-└──────────────────────────────────────────────────────────┘
+routeros ──► collector ──► classifier ──► controller ──► routeros (SetLimits)
+                 │
+                 └──► metrics
 ```
 
----
+Each tick, the collector produces one immutable `Snapshot` describing the state
+of the link at that instant per source stats and per queue rates. The Snapshot
+flows through classification, then fans out to the metrics exporter and the
+controller. Nothing downstream mutates it so there is no shared state to guard
+along the pipeline — the only shared resource in the whole system is the single
+RouterOS connection, which is discussed below.
 
-## Data Flow
+## Why a control loop, not event-driven
 
-The lifecycle of a single attack, step by step:
+Shaping is a problem about aggregate rate over time, not about discrete events. The
+question the agent answers is the realtime class under pressure right now? is
+only meaningful when averaged over a window. There is no single packet whose
+arrival should trigger a reallocation.
 
-1. **Attacker probes the router** — for example, repeated SSH login attempts.
-2. **Router logs the event** — MikroTik writes it to its internal log stream.
-3. **Watcher reads the log** — `mikrotik.Watcher` subscribes to the router's log stream over the RouterOS API, parses each line, extracts the source IP and event type, and pushes a `LogEntry` into a Go channel.
-4. **Engine receives the event** — `firewall.Engine` reads from the channel. It first checks the whitelist; whitelisted IPs are ignored immediately. It then finds a matching detection rule for the event type.
-5. **Engine counts events in a sliding window** — for each IP + event type pair, the engine keeps a list of timestamps. Old timestamps outside the rule's time window are dropped. If the number of recent events reaches the rule's threshold, the IP is blocked.
-6. **MikroTik Client blocks the IP** — `mikrotik.Client.BlockIP` sends an API command that adds the IP to the router's blacklist address-list with a timeout.
-7. **Event is persisted** — `storage` writes both the event and the blocked-IP record to SQLite.
-8. **Notifications fire** — the Telegram bot sends an alert, and the Prometheus counter is incremented.
-9. **Data becomes queryable** — the REST API and Telegram commands can now report the block.
+A fixed-interval control loop fits this directly, and the RouterOS API reinforces
+the choice:
 
----
+- **The API is pull not push.** RouterOS exposes counters you read it does not
+  stream per-packet or per-connection events. An event-driven design would have to
+  synthesise events by polling anyway, so polling is the honest primitive.
+- **Rate is a delta between samples.** Per source byte rates are computed as
+  `(bytes_now - bytes_prev) / interval` That calculation only exists because
+  there are two samples a fixed time apart. The loop period is both the control
+  period and the measurement window one interval serves both.
+- **Bounded work per tick.** A loop does a predictable amount of work each period
+  regardless of traffic volume. An event driven shaper reacting to connection
+  churn would do unbounded work under exactly the load it most needs to survive 
+  a DDoS or a torrent swarm opening thousands of connections would become a
+  self inflicted overload.
+- **Hysteresis needs a clock.** "Sustained for three ticks" only has meaning in a
+  system with ticks. The loop gives hold-ticks a natural unit.
 
-## Package Responsibilities
+The trade off is latency of reaction the controller can be up to one interval
+behind reality. At a one-second interval that is acceptable, because the thing it
+protects against — bufferbloat building in a saturated queue develops over
+seconds not milliseconds. If sub second reaction were ever required the answer
+is a shorter interval not an event model.
 
-### `internal/mikrotik` — bridge to the router
+## Concurrency: mutex and channels, each where it fits
 
-| File | Responsibility |
-|------|---------------|
-| `client.go` | Manages the RouterOS API connection (connect, disconnect, health check) |
-| `firewall.go` | Block, unblock, and list blocked IPs via the address-list |
-| `watcher.go` | Subscribes to the router's log stream and parses entries into structured events |
+The system uses both `sync.Mutex` and channels and the split follows the standard
+Go guidance share memory by communicating for data flow guard shared memory
+with a mutex for a shared resource.
 
-### `internal/firewall` — decision-making core
+**Channels move Snapshots between stages.** The collector owns a Snapshot, then
+hands it off; once it is on the channel, the collector is done with it and the next
+stage owns it. This is ownership transfer, which is what channels are for. The
+pipeline (collector classifier fan out to metrics and controller) is wired
+with unbuffered channels, and every send is paired with a `ctx.Done()` case so a
+blocked send cannot wedge shutdown:
 
-| File | Responsibility |
-|------|---------------|
-| `whitelist.go` | Checks whether an IP falls within a trusted single IP or CIDR range |
-| `rules.go` | Defines detection rules (threshold + time window per event type) |
-| `engine.go` | Combines rules, whitelist, and the sliding-window counter. The "block or not" decision happens here. Safe for concurrent use via a mutex |
-
-### `internal/storage` — persistence and analytics
-
-| File | Responsibility |
-|------|---------------|
-| `db.go` | Opens the SQLite database and creates tables |
-| `events.go` | Saves and reads events and blocked-IP records |
-| `queries.go` | Statistics: top attackers, attack counts, block status |
-
-### `internal/bot` — human interface
-
-| File | Responsibility |
-|------|---------------|
-| `bot.go` | Initializes the Telegram bot and registers commands |
-| `handlers.go` | Responds to user commands |
-| `notifier.go` | Sends automatic alerts on block, error, startup, and shutdown |
-
-### `internal/api` — programmatic interface
-
-| File | Responsibility |
-|------|---------------|
-| `server.go` | HTTP server and route registration |
-| `handlers.go` | Request handlers for each endpoint |
-| `middleware.go` | API-key authentication and request logging |
-
-### `internal/metrics`
-
-| File | Responsibility |
-|------|---------------|
-| `prometheus.go` | Defines and exports gauges and counters for Prometheus to scrape |
-
-### `internal/config`
-
-| File | Responsibility |
-|------|---------------|
-| `config.go` | Loads `config.yml`, validates required fields, and overrides secrets from environment variables |
-
-### `pkg/utils`
-
-| File | Responsibility |
-|------|---------------|
-| `logger.go` | Structured logging built on `slog` |
-| `ip.go` | IP validation, private-range detection, sanitization, and log parsing |
-
-### `cmd/simulator` — attack simulator
- 
-| File | Responsibility |
-|------|---------------|
-| `main.go` | Generates SSH brute-force attempts and port scans against a target router to test the detection pipeline end to end |
-
----
-
-## Concurrency Model
-
-The system relies on Go's goroutines and channels rather than shared locks wherever possible.
-
-```
-main goroutine
-   │
-   ├── go watcher.Watch()       — reads logs from the router
-   ├── go processEvents()       — handles events one at a time
-   ├── go apiServer.Start()     — serves HTTP
-   ├── go bot.Start()           — Telegram polling
-   └── go metricsUpdater()      — refreshes Prometheus metrics
-   │
-   └── <-quit  (blocks until Ctrl+C / SIGTERM)
-          │
-          └── close(stop) → all goroutines return cleanly
-              defer: close router, db, bot connections
+```go
+select {
+case toController <- snap:
+case <-ctx.Done():
+    return
+}
 ```
 
-- **Watcher** runs in its own goroutine, continuously reading the router's log stream without blocking the main flow. Results are pushed into a buffered `chan LogEntry`.
-- **Event-processing loop** reads from the channel with `for event := range events`, processing one event at a time.
-- **API server, Telegram bot, and metrics updater** each run in their own goroutines and do not block one another.
-- **Shared state is protected by a mutex.** The engine's sliding-window counters are guarded by `sync.Mutex`, preventing concurrent map corruption.
-- **Channels signal shutdown.** On `SIGINT` or `SIGTERM`, the main goroutine closes a `stop` channel. Each background goroutine watches it with a `select` and returns cleanly.
+**A mutex guards the one RouterOS connection.** The agent holds a single TCP
+connection to the router's API. That connection is a request/response protocol a
+call writes a request and then reads its response and a second goroutine writing
+its own request in between would interleave two dialogues on one socket and
+corrupt both. The mutex therefore wraps the *entire* request-response cycle not
+just field access:
 
----
+```go
+func (c *Client) run(ctx context.Context, args ...string) (*routeros.Reply, error) {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    // full write-request / read-reply dialogue happens under the lock
+}
+```
 
-## Sliding Time Window
+This is the case a mutex is designed for: a single shared resource that must be
+used by one goroutine at a time. Trying to model it with a channel for instance
+a request/response channel pair fronting the connection would reinvent a lock
+with more moving parts and no benefit. The rule the codebase follows is: channels
+for handing data between stages, a mutex for the resource those stages share.
 
-The core detection mechanism. Instead of a simple counter, the engine tracks *when* each event happened.
+## RouterOS client and connection handling
 
-For a rule like **"10 SSH failures in 60 seconds"**:
+The client connects once at startup. A failure to connect there is fatal there
+is nothing useful the agent can do without a link to the router so it exits with
+a clear error rather than starting a loop that can never succeed.
 
-1. Each new event appends the current timestamp to a list keyed by `IP + event type`.
-2. On every new event, timestamps older than 60 seconds are removed.
-3. If the remaining list has **10 or more entries**, the rule fires.
+During the loop every API call returns its error up the stack. The mutex is what
+makes this safe: because each call holds the lock for its whole dialogue a call
+that fails partway through releases the lock in a clean state (via `defer`), and
+the next call starts a fresh dialogue rather than reading a stale half-response.
+An error does not leave the connection in an ambiguous state for other goroutines.
 
-This gives an accurate, rolling measure of recent activity. An attacker who spreads attempts over hours never triggers the rule, while a burst of 10 attempts in a few seconds does. Old entries are cleaned automatically, so memory does not grow without bound.
+Errors propagate to the stage's `Run` loop, which surfaces them through the agent.
+Shutdown is driven by context: `signal.NotifyContext` cancels on SIGTERM/SIGINT,
+every loop selects on `ctx.Done()`, and the connection is closed with a deferred
+`Close()`. This gives an orderly teardown — no goroutine is left blocked on a
+channel send or a socket read.
 
----
+**Boundary automatic reconnection is not implemented.** Today a dropped
+connection surfaces as a call error and stops the affected loop; recovery is a
+process restart (the container restart policy handles this in the bundled
+deployment). This is a deliberate boundary for the current version, not an
+oversight fail-fast with an external supervisor is simpler and more predictable
+than an in process reconnect state machine, and it avoids the harder question of
+what limits to reassert after a gap. A reconnect ith backoff path that
+re establishes the connection and re applies the last known limits is the natural
+next step and is tracked as future work.
 
-## Attack Simulator
- 
-The `cmd/simulator` tool exercises the full detection pipeline without needing a real attacker. It is a standalone binary that talks to the router directly, not part of the running agent.
- 
-- **SSH mode** repeatedly opens SSH connections with deliberately wrong passwords. Each failed attempt makes the router write a `login failure` entry to its log stream, which the Watcher then picks up.
-- **Scan mode** opens TCP connections to a list of common ports, producing connection events the firewall can flag as scanning activity.
-Because whitelisted addresses are never blocked, the simulator must be run from a source IP that is **outside** the configured whitelist. This makes it a safe, repeatable way to confirm that detection rules, the sliding window, blocking, storage, and notifications all work together correctly.
- 
----
+## Classification
 
-## Security Considerations
+Classification turns raw per ource stats into a `TrafficClass`. The rules are
+ordered and the first match wins so ordering is part of the logic not an
+implementation detail:
 
-- **Secrets never live in code.** Passwords, tokens, and API keys are read from environment variables at runtime and excluded from version control via `.gitignore`.
-- **The REST API requires authentication.** Every `/api/v1/*` route is guarded by middleware that validates an `X-API-Key` header. Missing or invalid keys receive `401 Unauthorized`.
-- **The whitelist prevents self-lockout.** Local networks and localhost are checked before any block decision, so the system can never lock out the administrator or trusted devices.
-- **The router config is mounted read-only in Docker**, preventing accidental modification from within the container.
+1. **realtime** — the source's UDP to total ratio is at or above
+   `udp_ratio_realtime`. Interactive real time traffic (calls games) is
+   predominantly UDP and is the traffic that suffers most from bufferbloat so it
+   is matched first.
+2. **bulk** — the source has either a high concurrent connection count
+   (`bulk_min_conns`) or a high steady byte cadence (`bulk_min_bps`). Either
+   signal on its own is enough: swarms show up as connection count single large
+   transfers show up as cadence.
+3. **interactive** — everything else. This is the catch all and is always last.
 
----
+The ratio test is guarded against a source with zero connections so the division
+cannot produce a NaN. The same ordering is mirrored in the mangle rules on the
+router, where the `interactive` catch-all is likewise the final rule.
 
-## Deployment
+## HTB and the control decision
 
-The entire stack — agent, Prometheus, and Grafana — is defined in a single `docker-compose.yml` and started with one command.
+Enforcement is a RouterOS queue tree, which implements HTB (Hierarchical Token
+Bucket). In HTB each queue has two rates: a guaranteed rate (`limit-at`, the
+bandwidth it is always entitled to) and a ceiling (`max-limit`, the most it may
+use when siblings leave headroom). A parent queue holds the total uplink budget;
+the `realtime`, `bulk`, and `interactive` children draw from it. Packets are
+directed into a child by the packet mark that the mangle rules set. Reallocating
+bandwidth between classes therefore means changing these `limit-at`/`max-limit`
+values — which is exactly what the controller does through `SetLimits`.
 
-The agent image uses a **multi-stage build**:
-1. The first stage compiles the binary with the full Go toolchain.
-2. The second stage copies only the binary into a minimal Alpine image, keeping the final image small.
+The decision itself is a small state machine driven by realtime-class
+utilization:
 
-Grafana and Prometheus are **provisioned automatically** — the datasource and dashboard are configured on startup with no manual steps required.
+```
+if utilization >= high_watermark:
+        tightTicks++;  freeTicks = 0
+        if tightTicks >= hold_ticks: reset; BoostRT
+else:
+        freeTicks++;   tightTicks = 0
+        if freeTicks >= hold_ticks: reset; RelaxRT
+```
+
+- **BoostRT** raises the realtime guarantee by `step_mbit` and lowers bulk by the
+  same amount — bandwidth is moved toward realtime when it is under sustained
+  pressure.
+- **RelaxRT** does the reverse returning bandwidth to bulk once realtime has been
+  comfortably below the watermark for long enough.
+
+Every shift is bounded. A class is never pushed below a floor (`minMbit`, 50) and
+the sum of guarantees is held within the uplink budget, so the controller cannot
+starve a class or over-commit the link no matter how long pressure persists.
+
+### Hysteresis and why it matters
+
+The two counters, `tightTicks` and `freeTicks`, are the hysteresis. An action
+fires only after utilization stays on one side of the watermark for `hold_ticks`
+consecutive samples, and the opposing counter is reset every tick. A single tick
+on the other side of the line zeroes the count and the pending action is
+abandoned.
+
+Without this, a source hovering right at 90% would push utilization across the
+watermark on alternating samples and the controller would issue BoostRT, RelaxRT,
+BoostRT on successive ticks flapping. Flapping is not just wasted work: each
+action rewrites the queue tree, and rewriting the tree while it is actively
+shaping a saturated link perturbs the very queues it is trying to stabilise
+adding the latency the whole system exists to remove. Hysteresis converts a noisy,
+sub second utilization signal into a small number of deliberate actions that track
+real sustained shifts in load.
