@@ -1,264 +1,157 @@
-# 🛡️ MikroTik Intelligent Defender
+# adaptive-shaper
 
-An autonomous network security system written in Go that protects a MikroTik router from attacks in real time. It monitors router logs, detects suspicious activity, automatically blocks attackers at the firewall level, stores attack history, and sends instant Telegram notifications.
+A Go agent that manages an HTB queue tree on a MikroTik RB5009 in real time. It
+samples traffic over the RouterOS API on a fixed interval classifies each
+source and reallocates queue limits to protect latency-sensitive flows when the
+uplink comes under load.
 
----
+## Motivation
 
-## Overview
+I built this because my home uplink fell apart under load. Any sustained upload —
+a backup, a game pushing an update, another device seeding — would saturate the
+link and my ping would climb from around 15 ms into the hundreds. Throughput
+looked fine the whole time; latency did not. That gap is bufferbloat: oversized
+buffers along the path hold packets instead of dropping them so a saturated link
+keeps moving bytes while every interactive flow waits behind a full queue.
 
-The system is built on a **Data Plane + Control Plane** architecture:
+RouterOS already shapes traffic with a queue tree, but the limits are static. I
+can hard-cap bulk traffic but a fixed cap is wrong in both directions: set it low
+and I waste bandwidth whenever nothing else is running; set it high and it does
+nothing at the exact moment contention starts. What I actually wanted was a queue
+tree that reacts hand the whole pipe to bulk traffic while the link is idle, and
+claw bandwidth back for realtime traffic the instant latency sensitive flows start
+competing. That decision has to be made continuously from live measurements rather
+than configuredonce which is what this agent does.
 
-- **Data Plane** (MikroTik RB5009UPr+S+IN) — passes traffic and applies filtering rules (blocks, rate limits).
-- **Control Plane** (Go agent on a mini PC) — the brain: analyzes router logs, decides whether to block, and sends commands to the router via the RouterOS API.
+The router stays the data plane: it forwards packets and enforces the queue tree.
+The agent is the control plane: it reads counters decides and pushes limit
+changes back over the API. No traffic passes through the agent so a crash or
+restart degrades to whatever limits were last applied rather than dropping the
+link.
 
-```
-Internet  →  [ MikroTik Router ]  →  Local Network
-                      ↕
-               [ Go Agent ]
-               "The Brain"
-```
+## How it works
 
-When someone attacks the router, the agent detects it, instructs the router to block the attacker, and notifies you on Telegram.
-
----
-
-## Features
-
-- 📡 **Real-time log monitoring** via the RouterOS API
-- 🔍 **Automatic threat detection** — SSH brute-force, port scans, repeated login failures
-- ⏱️ **Sliding time-window analysis** — e.g. "10 SSH login failures within 60 seconds → block"
-- ✅ **Whitelist protection** — trusted IPs and networks are never blocked
-- 💾 **Persistent storage** — attack history saved in SQLite, survives restarts
-- 🤖 **Telegram bot** — instant alerts and remote control (`/status`, `/blocked`, `/unban`, `/top`)
-- 🔌 **REST API** — programmatic control with API-key authentication
-- 📊 **Prometheus metrics** — exported for monitoring and graphing
-- 📈 **Grafana dashboard** — visual overview of blocked IPs and attack trends
-- 🔄 **Graceful shutdown** — cleanly closes router, database, and bot connections
-- 🐳 **Fully containerized** — one command to run the whole stack
-- ⚔️ **Attack simulator** — built-in tool to test detection without a real attacker
-
----
-
-## Architecture
+The agent runs a fixed-interval control loop over the RouterOS API:
 
 ```
-Watcher   →  reads MikroTik logs in real time
-   ↓
-Engine    →  applies detection rules, checks whitelist, decides to block
-   ↓
-MikroTik  →  blocks the IP via the RouterOS address-list
-   ↓
-Storage   →  saves the event to SQLite
-Bot       →  sends a Telegram notification
-Metrics   →  updates Prometheus counters
-API       →  exposes data over HTTP
+routeros ──► collector ──► classifier ──► controller ──► routeros (SetLimits)
+                 │
+                 └──► metrics (:9090, Prometheus)
 ```
 
----
+- **collector** polls the queue tree and the connection table on every tick and
+  computes per-source byte rates from two consecutive samples (a delta divided by
+  the elapsed interval).
+- **classifier** labels each source. A high UDP-to-total ratio marks it
+  `realtime`; a high connection count or a high steady byte cadence marks it
+  `bulk`; everything else is `interactive`. The rules are ordered, and
+  `interactive` is the catch-all.
+- **controller** compares realtime-class utilization against a high watermark and
+  shifts HTB limits between classes, with hold-ticks hysteresis so momentary
+  spikes do not cause it to oscillate.
 
-## Project Structure
+Packet marking is done with `/ip firewall mangle` rules; enforcement is a
+RouterOS queue tree (HTB). The catch-all `interactive` mangle rule is always last,
+because mangle is evaluated top-down and the first match wins.
 
-```
-mikrotik-defender/
-├── cmd/
-│   ├── agent/        # main entry point — runs the whole system
-│   └── bot/          # standalone Telegram bot
-│   └── simulator/    # attack simulator for testing detection
-├── internal/
-│   ├── mikrotik/     # RouterOS API client, watcher, firewall
-│   ├── firewall/     # detection engine, rules, whitelist
-│   ├── storage/      # SQLite (db, events, queries)
-│   ├── bot/          # Telegram bot (handlers, notifier)
-│   ├── api/          # REST API (server, handlers, middleware)
-│   ├── metrics/      # Prometheus exporter
-│   └── config/       # configuration loader with env overrides
-├── pkg/utils/        # logger and IP helpers
-├── configs/          # config.yml
-├── deployments/      # Dockerfile, docker-compose, prometheus, grafana
-└── docs/             # architecture and API documentation
-```
+## Requirements
 
----
+- Go 1.25
+- A MikroTik router with the RouterOS API service enabled
+- Docker and Docker Compose (optional — only for the bundled Prometheus/Grafana
+  stack)
 
-## Tech Stack
-
-`Go 1.25` · `RouterOS API` · `SQLite` · `Gin` · `telebot.v3` · `Prometheus` · `Grafana` · `Docker` · `Swagger/OpenAPI`
-
----
-
-## Quick Start
-
-### 1. Clone the repository
+## Quick start
 
 ```bash
-git clone https://github.com/dmytroyunyk/Mikrotik-firewall.git
-cd Mikrotik-firewall
+git clone https://github.com/dmytroyunyk/Mikrotik-adaptive-shaper.git
+cd Mikrotik-adaptive-shaper
+cp .env.example .env      # set ROUTEROS_PASSWORD here; .env is gitignored
+make docker-run           # agent + Prometheus + Grafana
 ```
 
-### 2. Configure secrets
-
-Create a `.env` file in the project root:
-
-```env
-MIKROTIK_PASSWORD=your_router_password
-TELEGRAM_TOKEN=your_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
-API_KEY=your_api_key
-```
-
-> - Get the Telegram token from [@BotFather](https://t.me/BotFather)
-> - Get your chat ID from [@userinfobot](https://t.me/userinfobot)
-
-### 3. Adjust the config
-
-Edit `configs/config.yml` with your router address and firewall thresholds.
-
-### 4. Run with Docker
+To run the agent alone, without the monitoring stack:
 
 ```bash
-make docker-run
+go run .
 ```
-
-This starts the agent, Prometheus, and Grafana.
-
-### 5. Run locally (without Docker)
-
-```bash
-env $(cat .env) go run ./cmd/agent
-```
-
----
 
 ## Configuration
 
+Configuration lives in `configs/config.yaml`. The router password is the only
+secret and is read from the environment (`ROUTEROS_PASSWORD`), never committed.
+
 ```yaml
-mikrotik:
-  address: "192.168.88.1:8728"   # router IP + API port
-  username: "admin"
-  password: ""                   # set via MIKROTIK_PASSWORD
+agent:
+  interval: 1s              # control-loop period; also the rate-delta window
 
-firewall:
-  ban_threshold: 10              # events before blocking
-  ban_duration_minutes: 60       # how long to block
-  whitelist:
-    - "192.168.88.0/24"          # never blocked
-    - "127.0.0.1"
+routeros:
+  host: 192.168.88.1
+  port: 8728
+  username: shaper
+  password: ""              # set via ROUTEROS_PASSWORD
 
-telegram:
-  token: ""                      # set via TELEGRAM_TOKEN
-  chat_id: ""                    # set via TELEGRAM_CHAT_ID
+shaper:
+  interface: ether1
+  uplink_mbit: 100          # total budget shared by the queue tree
+  realtime_mbit: 50         # starting guarantee for the realtime class
+  bulk_mbit: 50             # starting guarantee for the bulk class
 
-storage:
-  path: "./data/defender.db"
+classifier:
+  udp_ratio_realtime: 0.6   # UDP/total at or above this marks a source realtime
+  bulk_min_conns: 20        # this many concurrent connections marks a source bulk
+  bulk_min_bps: 2000000     # or this steady byte cadence marks it bulk
 
-api:
-  port: 8080
-  key: ""                        # set via API_KEY
-
-log:
-  level: "info"                  # debug / info / warn / error
+controller:
+  high_watermark: 0.90      # act when realtime usage reaches this fraction
+  hold_ticks: 3             # consecutive ticks required before acting
+  step_mbit: 10             # bandwidth moved between classes per action
 ```
 
-> Secrets are read from environment variables and never committed to the repository.
+Two thresholds carry most of the tuning and are worth explaining:
 
----
+- **`high_watermark: 0.90`.** The controller reacts when the realtime class is
+  using at least 90% of its current allocation. Reacting at full saturation is too
+  late by the time a class is at 100% the queue is already building latency.
+  Reacting much earlier (say 0.70) wastes bandwidth by treating normal bursts as
+  contention. 0.90 leaves a headroom band wide enough to act before the queue
+  fills but narrow enough that ordinary traffic does not trip it.
 
-## Telegram Commands
-
-| Command        | Description                     |
-|----------------|---------------------------------|
-| `/start`       | Welcome message and command list |
-| `/status`      | System statistics               |
-| `/blocked`     | List of currently blocked IPs   |
-| `/top`         | Top 10 attackers                |
-| `/unban <IP>`  | Unblock an IP address           |
-
----
-
-## REST API
-
-All `/api/v1/*` endpoints require the `X-API-Key` header.
-
-| Method   | Endpoint               | Description              |
-|----------|------------------------|--------------------------|
-| `GET`    | `/health`              | Liveness check (no auth) |
-| `GET`    | `/metrics`             | Prometheus metrics       |
-| `GET`    | `/api/v1/stats`        | System statistics        |
-| `GET`    | `/api/v1/blocked`      | List of blocked IPs      |
-| `DELETE` | `/api/v1/blocked/{ip}` | Unblock an IP            |
-| `GET`    | `/api/v1/events`       | Recent attack events     |
-| `GET`    | `/api/v1/attackers`    | Top attackers            |
-
-## Attack Simulator
- 
-A built-in tool to safely test the detection system against your own router. It generates SSH brute-force attempts or port scans so you can verify that the engine detects and blocks them — no real attacker required.
- 
-```bash
-# Simulate an SSH brute-force attack (20 attempts)
-go run ./cmd/simulator --mode ssh --target 192.168.88.1:22 --count 20 --delay 200
- 
-# Simulate a port scan
-go run ./cmd/simulator --mode scan --target 192.168.88.1 --count 20
-```
- 
-| Flag       | Description                              | Default              |
-|------------|------------------------------------------|----------------------|
-| `--target` | Router IP:port to test                   | `192.168.88.1:22`    |
-| `--mode`   | Attack type: `ssh` or `scan`             | `ssh`                |
-| `--count`  | Number of attempts                       | `15`                 |
-| `--delay`  | Delay between attempts (milliseconds)    | `500`                |
- 
-> ⚠️ Run the simulator from a device **outside** the whitelist, otherwise the source IP will never be blocked. Use it only against your own equipment.
- 
----
-
-**Example:**
-
-```bash
-curl -H "X-API-Key: your_key" http://localhost:8080/api/v1/stats
-```
-
-Interactive API documentation (Swagger UI) is available at:
-```
-http://localhost:8080/swagger/index.html
-```
-
----
+- **`hold_ticks: 3`.** An action fires only after the utilization stays on one
+  side of the watermark for three consecutive ticks. Traffic is bursty at
+  subsecond resolution and a controller that reacts to a single tick would
+  boost and relax on alternating samples flapping. Every flap rewrites the queue
+  tree, and rewriting the tree under load is itself a source of latency. Holding
+  for three ticks (three seconds at the default interval) filters transient
+  spikes and only responds to sustained pressure. This is asymmetric by design:
+  the same counter guards both directions, so a single tick on the opposite side
+  resets it and the controller never acts on noise.
 
 ## Monitoring
 
-| Service    | URL                                        |
-|------------|--------------------------------------------|
-| Prometheus | http://localhost:9090                      |
-| Grafana    | http://localhost:3000 (admin / admin)      |
+| Service    | URL                     |
+|------------|-------------------------|
+| Agent      | http://localhost:9090   |
+| Prometheus | http://localhost:9091   |
+| Grafana    | http://localhost:3000   |
 
-The Grafana dashboard loads automatically and shows blocked IPs, total events, events in the last 24 hours, and blocking trends over time.
+The agent exposes per-class rates current limits and classification counts as
+Prometheus metrics on `:9090`. The bundled Grafana dashboard graphs realtime
+utilization against the watermark and shows each controller action over time.
 
----
+## Project layout
 
-## Makefile Commands
-
-```bash
-make build          # build the agent binary
-make run            # run the agent
-make test           # run all tests
-make docker-run     # start the full stack with Docker
-make docker-stop    # stop all containers
-make docker-logs    # follow container logs
 ```
-
----
-
-## Testing
-
-```bash
-go test ./... -v
+routeros/    RouterOS API client (mutex-serialized), queue tree, mangle rules
+collector/   polls queue + connection stats into a Snapshot each tick
+classifier/  assigns a TrafficClass per source from the Snapshot
+controller/  decision logic (hysteresis) and limit application via SetLimits
+metrics/     Prometheus exporter and HTTP server
+config/      YAML loader with environment overrides
+models/      shared types (Snapshot, SourceStat, QueueRate, TrafficClass)
+main.go      wires the pipeline and handles graceful shutdown
 ```
-
-Unit tests cover the firewall engine, detection rules, whitelist logic, configuration loading, database operations, and utility functions using table-driven tests.
-
----
 
 ## License
 
-[MIT](LICENSE)
+Released under the MIT License See [LICENSE](LICENSE).
